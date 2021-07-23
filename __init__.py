@@ -26,8 +26,8 @@ bl_info = {
     "name": "Urho3D export",
     "description": "Urho3D export",
     "author": "reattiva",
-    "version": (0, 6),
-    "blender": (2, 83, 0),
+    "version": (0, 6, 1),
+    "blender": (2, 93, 0),
     "location": "Properties > Render > Urho export",
     "warning": "",
     "wiki_url": "",
@@ -1287,7 +1287,7 @@ def selectVertices(context, objectName, indicesList, deselect):
         return
 
     # Set the object as current
-    objects.active = obj
+    bpy.context.view_layer.objects.active = obj
     # Enter Edit mode (check poll() to avoid exception)
     if bpy.ops.object.mode_set.poll():
         bpy.ops.object.mode_set(mode='EDIT', toggle=False)
