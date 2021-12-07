@@ -535,6 +535,7 @@ def NELExportScene(context, uScene, sOptions, fOptions):
                 bone = object.parent.data.bones[object.parent_bone]
                 objMatrix = Matrix(objMatrix) # Copy so we don't modify the object
                 objMatrix[1][3] += bone.length
+                backup = objMatrix.copy()
                 # We also need to correct the orientation
                 from math import radians,pi
                 orientations = {
@@ -590,21 +591,99 @@ def NELExportScene(context, uScene, sOptions, fOptions):
                 M = Matrix.Rotation(pi,4,'Z') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' )
                 
                 
-                log.warning(str(M.to_3x3()))
-                log.warning(str(M.to_3x3().inverted()))
-                log.warning(objMatrix)
-                log.warning(objMatrix @ M)
-                log.warning(Matrix.Rotation(pi,4,'Y') @ objMatrix@ Matrix.Rotation(math.radians(-90.0), 4, 'X' ))
+                #log.warning(str(M.to_3x3()))
+                #log.warning(str(M.to_3x3().inverted()))
+                #log.warning(objMatrix)
+                #log.warning(objMatrix @ M)
+                #log.warning(Matrix.Rotation(pi,4,'Y') @ objMatrix@ Matrix.Rotation(math.radians(-90.0), 4, 'X' ))
                 #log.warning(Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ objMatrix@ Matrix.Rotation(pi,4,'Y'))
                 
                 #objMatrix = objMatrix @ M # Working but X and Z translation are negated. Orientation is right, if the object is directly along the bone's axis.
                 #objMatrix = objMatrix @ M
-                objMatrix = Matrix.Rotation(pi,4,'Y') @ objMatrix @  Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
+                
+                # This is working for Left (X_MINUS) view. But not for Front.
+                objMatrix = Matrix.Rotation(pi,4,'Y') @ objMatrix @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
+                
+                log.warning('Worked for X_MINUS')
+                log.warning(orientation.to_matrix().to_4x4() @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ))
+                log.warning(Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ) @ orientation.to_matrix().to_4x4().inverted())
+                
+                log.warning('Orientation for X_MINUS')
+                log.warning(orientations['X_MINUS'].to_matrix().to_4x4())
+                log.warning(orientations['X_MINUS'].to_matrix().to_4x4().inverted())
+                
+                log.warning('Proposed correct')
+                xm = orientations['X_MINUS'].to_matrix().to_4x4()
+                ori = (Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))).to_matrix().to_4x4()
+                log.warning(xm.inverted() @ ori @ 
+                            Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ))
+                log.warning(Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ) @ ori @ xm)
+                
+                #objMatrix = Matrix((( 0.0000, -1.0000, 0.0000, 0.0000),
+                    #( 0.0000,  0.0000, 1.0000, 0.0000),
+                    #(-1.0000, -0.0000, 0.0000, 0.0000),
+                    #( 0.0000,  0.0000, 0.0000, 1.0000))) @ objMatrix
             
-            if orientation:
+                
+                # Compare with our proposed ideal case:
+            
+                """ Ops above (and below with the orientation) are 
+                objMatrix = Matrix.Rotation(pi,4,'Y') @ objMatrix @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
+                orientation = Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))
                 om = orientation.to_matrix().to_4x4()
                 objMatrix = om @ objMatrix @ om.inverted()
+                
+                In other words
+                
+                X-90 Z+180 Y+180 _M_ Y+180 X-90 Y+90 (X-90 Z+180)^-1
+                OR
+                X-90 Z+180 Y+180 _M_ Y+180 X-90 Y+90 Z+180 X+90
+                OR
+                X-90 Z+180 Y+180
+                """
+                # We want to not fix orientation
+                orientation = sOptions.orientation # = Quaternion((0.0,0.0,1.0), radians(-90.0)) for X_MINUS
+                matrix = backup
+                matrix = Matrix.Rotation(pi,4,'Y') @ matrix @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
+                ori = (Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))).to_matrix().to_4x4()
+                matrix = ori @ matrix @ ori.inverted()
+                
+                xm = Quaternion((0.0,0.0,1.0), radians(-90.0)).to_matrix().to_4x4()
+                matrix = xm.inverted() @ matrix @ xm
+                # At end : 
+                om = orientation.to_matrix().to_4x4()
+                matrix = om @ matrix @ om.inverted()
+                # For X_MINUS this is Z-90 _M_ Z+90
+                
+                log.warning('Check')
+                log.warning(matrix)
+                
+                LEFT = xm.inverted() @ ori @ Matrix.Rotation(pi,4,'Y')
+                RIGHT = Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ) @ ori.inverted() @ xm
+                log.warning('Check2')
+                log.warning(om @ LEFT @ backup @ RIGHT @ om.inverted())
+                log.warning(LEFT)
+                log.warning(RIGHT)
+                
+                LEFT = Matrix(((0,0,1,0),(1,0,0,0),(0,1,0,0),(0,0,0,1)))
+                RIGHT = Matrix.Identity(4)
+                
+                objMatrix = LEFT @ backup @ RIGHT
+                
+                om = orientation.to_matrix().to_4x4()
+                #objMatrix = om @ objMatrix @ om.inverted()
+                objMatrix = xm @ objMatrix @ om.inverted() # This line works for all but back, which has None orientation
+                
+                
+                log.warning('Final')
+                log.warning(objMatrix)
             
+            elif orientation: # Try removing this point of variation from the bones
+                om = orientation.to_matrix().to_4x4()
+                objMatrix = om @ objMatrix @ om.inverted()
+                #if onBone:
+                    #log.warning('Final')
+                    #log.warning(objMatrix)
 
             # Get pos/rot/scale
             pos = objMatrix.to_translation()
