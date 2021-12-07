@@ -176,14 +176,17 @@ def CheckFilepath(fileFullPaths, fOptions):
 # XML formatters
 #--------------------
 
+def c(v):
+	return 0.0 if abs(v) < 1e-6 else v
+
 def FloatToString(value):
     return "{:g}".format(value)
 
 def Vector3ToString(vector):
-    return "{:g} {:g} {:g}".format(vector[0], vector[1], vector[2])
+    return "{:g} {:g} {:g}".format(c(vector[0]), c(vector[1]), c(vector[2]))
 
 def Vector4ToString(vector):
-    return "{:g} {:g} {:g} {:g}".format(vector[0], vector[1], vector[2], vector[3])
+    return "{:g} {:g} {:g} {:g}".format(c(vector[0]), c(vector[1]), c(vector[2]), c(vector[3]))
 
 def XmlToPrettyString(elem):
     rough = ET.tostring(elem, 'utf-8')

@@ -785,6 +785,7 @@ def UrhoExport(tData, uExportOptions, uExportData, errorsMem):
 
     uModel = UrhoModel()
     uModel.name = tData.objectName
+    uModel.type = tData.type
     uExportData.models.append(uModel)    
     
     # For each bone

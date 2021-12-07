@@ -23,10 +23,10 @@ DEBUG = 0
 if DEBUG: print("Urho export init")
 
 bl_info = {
-    "name": "Urho3D export",
-    "description": "Urho3D export",
-    "author": "reattiva",
-    "version": (0, 6),
+    "name": "Urho3D export (NEL)",
+    "description": "Urho3D export (NEL)",
+    "author": "NEL, 1vanK, reattiva",
+    "version": (0, 7),
     "blender": (2, 83, 0),
     "location": "Properties > Render > Urho export",
     "warning": "",
@@ -46,7 +46,7 @@ if "decompose" in locals():
 from .decompose import TOptions, Scan
 from .export_urho import UrhoExportData, UrhoExportOptions, UrhoWriteModel, UrhoWriteAnimation, \
                          UrhoWriteTriggers, UrhoExport
-from .export_scene import SOptions, UrhoScene, UrhoExportScene, UrhoWriteMaterialsList
+from .export_scene import SOptions, UrhoScene, UrhoExportScene, NELExportScene, UrhoWriteMaterialsList
 from .utils import PathType, FOptions, GetFilepath, CheckFilepath, ErrorsMem
 from .materials import write_material
 if DEBUG: from .testing import PrintUrhoData, PrintAll
@@ -1431,9 +1431,9 @@ def ExecuteUrhoExport(context):
     elif settings.orientation == 'Y_MINUS':
         tOptions.orientation = Quaternion((0.0,0.0,1.0), radians(180.0))
     elif settings.orientation == 'Z_PLUS':
-        tOptions.orientation = Quaternion((1.0,0.0,0.0), radians(-90.0)) * Quaternion((0.0,0.0,1.0), radians(180.0))
+        tOptions.orientation = Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))
     elif settings.orientation == 'Z_MINUS':
-        tOptions.orientation = Quaternion((1.0,0.0,0.0), radians(90.0)) * Quaternion((0.0,0.0,1.0), radians(180.0))
+        tOptions.orientation = Quaternion((1.0,0.0,0.0), radians(90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))
 
     sOptions.doObjectsPrefab = settings.objectsPrefab
     sOptions.doCollectivePrefab = settings.collectivePrefab
@@ -1442,6 +1442,7 @@ def ExecuteUrhoExport(context):
     sOptions.trasfObjects = settings.trasfObjects
     sOptions.globalOrigin = tOptions.globalOrigin
     sOptions.orientation = tOptions.orientation
+    sOptions.scale = tOptions.scale
     sOptions.physics = settings.physics
     for shapeItem in settings.shapeItems:
         if shapeItem[0] == settings.collisionShape:
@@ -1596,7 +1597,8 @@ def ExecuteUrhoExport(context):
             log.warning("Select the type of prefabs you want to export")
         else:
             log.info("---- Exporting Prefabs and Scene ----")
-            UrhoExportScene(context, uScene, sOptions, fOptions)
+            #UrhoExportScene(context, uScene, sOptions, fOptions)
+            NELExportScene(context, uScene, sOptions, fOptions)
 
     return True
 

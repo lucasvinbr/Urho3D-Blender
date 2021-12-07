@@ -98,7 +98,7 @@ class TVertex:
         return (self.pos == other.pos and 
                 self.normal == other.normal and 
                 self.uv == other.uv and
-				self.color == other.color)
+                self.color == other.color)
 
     def isEqual(self, other):
         # TODO: compare floats with a epsilon margin?
@@ -330,6 +330,8 @@ class TData:
         self.animationsList = []
         # Common TAnimation, one track per object
         self.commonAnimation = None
+        # Whether this is an empty object (no geometries, just for scene node)
+        self.type = None
 
 class TOptions:
     def __init__(self):
@@ -2372,6 +2374,16 @@ def Scan(context, tDataList, errorsMem, tOptions):
     for obj in objs:
         # Only meshes
         if obj.type != 'MESH':
+            if not tOptions.mergeObjects:
+                tData = TData()
+                tData.objectName = obj.name
+                tData.blenderObjectName = obj.name
+                tData.type = obj.type
+                # Pass around the common animation
+                if len(tDataList) > 0:
+                    tData.commonAnimation = tDataList[-1].commonAnimation
+                tDataList.append(tData)
+                
             continue
         
         # Only not hidden
@@ -2483,7 +2495,7 @@ def Scan(context, tDataList, errorsMem, tOptions):
         if tOptions.doBones:
             # Check if obj has an armature parent, if it is attached to a bone (like hair to head bone)
             # we'll skin it to the bone with 100% weight (but it shouldn't have bone vertex groups)
-            if obj.parent and obj.parent.type == 'ARMATURE':
+            if False and obj.parent and obj.parent.type == 'ARMATURE': # NEL - Disabled as we only want skinning if Blender has skinning
                 armatureObj = obj.parent
             else:
                 # Check if there is an Armature modifier

@@ -117,7 +117,9 @@ class UrhoSceneModel:
             if parentObject and parentObject.type == 'MESH':
                 self.parentBlenderName = parentObject.name
 
-        if len(uModel.bones) > 0 or len(uModel.morphs) > 0:
+        if uModel.type != 'MESH':
+            self.type = uModel.type
+        elif len(uModel.bones) > 0 or len(uModel.morphs) > 0:
             self.type = "AnimatedModel"
         else:
             self.type = "StaticModel"
@@ -379,6 +381,271 @@ def UrhoWriteMaterialsList(uScene, uModel, filepath):
 # Export scene and nodes
 #------------------------
 
+def NELExportBone(armature, bone, XMLparent, ids, extractPosition, needBones):
+    node = XmlAddElement(XMLparent, "node", ids=ids)
+    XmlAddAttribute(node, name="Is Enabled", value="true") #extra
+    XmlAddAttribute(node, name="Name", value=bone.name)
+    XmlAddAttribute(node, name="Tags", value='BONE') #extra
+    
+    extractPosition(bone,node)
+    
+    if bone.name in needBones:
+        for o in needBones[bone.name]:
+            NELExportObject(o,node,ids,extractPosition)
+        
+    for b in bone.children:
+        NELExportBone(armature,b,node,ids,extractPosition,needBones)
+
+def NELExportObject(object, XMLparent, ids, extractPosition):
+    
+    if object.parent and object.parent.type == 'ARMATURE' and object.parent_type != 'BONE':
+        node = XMLparent
+        XmlAddAttribute(node, name="Tags", value='NEED TO CONFIRM POSITION IS THE SAME') #extra
+    else:
+        node = XmlAddElement(XMLparent, "node", ids=ids)
+            
+        XmlAddAttribute(node, name="Is Enabled", value="true") #extra
+        XmlAddAttribute(node, name="Name", value=object.name)
+        XmlAddAttribute(node, name="Tags", value=str(object.type)) #extra
+        #XmlAddAttribute(node, name="Variables") #extra
+    
+        extractPosition(object,node)
+        
+    
+    if object.type == 'MESH':
+        modelFile = f"Models/{object.name}.mdl"
+        materials = ';'.join(f"Materials/{m.name}.xml" for m in object.data.materials)
+        
+        comp = XmlAddComponent(node, type='AnimatedModel', ids=ids)
+        XmlAddAttribute(comp, name="Model", value="Model;" + modelFile)
+        XmlAddAttribute(comp, name="Material", value="Material" + materials)
+    elif object.type == 'LIGHT':
+        comp = XmlAddComponent(node, type="Light", ids=ids)
+        ltype = object.data.type
+        if ltype == 'SUN':
+            ltype = 'Directional'
+        elif ltype == 'SPOT':
+            ltype = 'Spot'
+        # Can't do area lights in Urho, so fall back to point
+        else:
+            ltype = 'Point'
+        XmlAddAttribute(comp, name="Light Type", value=ltype)
+        color = object.data.color
+        XmlAddAttribute(comp, name="Color", value=' '.join(map(str,color)))
+        
+    elif object.type == 'CAMERA':
+        comp = XmlAddComponent(node, type="Camera", ids=ids)
+    
+    from collections import defaultdict
+    needBones = defaultdict(list)
+    for o in object.children:
+        if o.parent_type != 'BONE':
+            NELExportObject(o,node,ids,extractPosition)
+        else:
+            needBones[o.parent_bone].append(o)
+    if needBones:
+        if object.type != 'ARMATURE':
+            log.warning("How does the child have a bone parent that is not an armature!?!")
+        else:
+            arma = object.data
+            rootBones = []
+            for b in arma.bones:
+                if b.parent is None:
+                    NELExportBone(object,b,node,ids,extractPosition,needBones)
+            
+            
+            
+
+def NELExportScene(context, uScene, sOptions, fOptions):
+    
+    def extractPosition(object,node):
+        if type(object) == bpy.types.Bone:
+            bone = object
+            tOptions = sOptions
+            
+            # From decompose.py
+            # 'bone.matrix_local' is referred to the armature, we need
+            # the transformation between the current bone and its parent.
+            boneMatrix = bone.matrix_local.copy()
+            
+            # Here 'bone.matrix_local' is in object(armature) space, so we have to
+            # calculate the bone transformation in parent bone space
+            if bone.parent:
+                boneMatrix = bone.parent.matrix_local.inverted() @ boneMatrix
+            else:
+                #boneMatrix = originMatrix @ boneMatrix
+                if tOptions.orientation:
+                    boneMatrix = tOptions.orientation.to_matrix().to_4x4() @ boneMatrix
+                # Normally we don't have to worry that Blender is Z up and we want
+                # Y up because we use relative transformations between bones. However
+                # the parent bone is relative to the armature so we need to convert
+                # Z up to Y up by rotating its matrix by -90° on X
+                boneMatrix = Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ boneMatrix
+
+            if tOptions.scale != 1.0:
+                boneMatrix.translation *= tOptions.scale
+
+            # Extract position and rotation relative to parent in parent space        
+            t = boneMatrix.to_translation()
+            q = boneMatrix.to_quaternion()
+            s = boneMatrix.to_scale()
+                    
+            # Convert position and rotation to left hand:
+            tl = Vector((t.x, t.y, -t.z))
+            ql = Quaternion((q.w, -q.x, -q.y, q.z))
+            sl = Vector((s.x, s.y, s.z))
+            
+            # Now we need the bone matrix relative to the armature. 'matrix_local' is
+            # what we are looking for, but it needs to be converted:
+            # 1) rotate of -90° on X axis:
+            # - swap column 1 with column 2
+            # - negate column 1
+            # 2) convert bone transformation in object space to left hand:        
+            # - swap row 1 with row 2
+            # - swap column 1 with column 2
+            # So putting them together:
+            # - swap row 1 with row 2
+            # - negate column 2
+            ml = bone.matrix_local.copy()
+            if tOptions.orientation:
+                ml = tOptions.orientation.to_matrix().to_4x4() @ ml
+            if tOptions.scale != 1.0:
+                ml.translation *= tOptions.scale
+            (ml[1][:], ml[2][:]) = (ml[2][:], ml[1][:])
+            ml[0][2] = -ml[0][2]
+            ml[1][2] = -ml[1][2]
+            ml[2][2] = -ml[2][2]
+
+            # Create a new bone
+            position = tl
+            rotation = ql
+            scale = sl
+        else:
+            if not sOptions.trasfObjects:
+                return
+            # Get the local matrix (relative to parent)
+            objMatrix = object.matrix_local
+            
+            orientation = sOptions.orientation
+            onBone = False
+            # Blender's Parent to Bone feature parents it to the point of the bone, while urho only uses the socket (other) end.
+            # As such, we have to offset the matrix by the bone length or it will be incorrect.
+            if object.parent and object.parent_type == 'BONE':
+                onBone = True
+                bone = object.parent.data.bones[object.parent_bone]
+                objMatrix = Matrix(objMatrix) # Copy so we don't modify the object
+                objMatrix[1][3] += bone.length
+                # We also need to correct the orientation
+                from math import radians,pi
+                orientations = {
+                
+                    'X_PLUS': Quaternion((0.0,0.0,1.0), radians(90.0)),
+                    'X_MINUS': Quaternion((0.0,0.0,1.0), radians(-90.0)),
+                    'Y_PLUS': Quaternion((0.0,0.0,1.0), radians(0.0)),
+                    'Y_MINUS': Quaternion((0.0,0.0,1.0), radians(180.0)),
+                    'Z_PLUS': Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0)), # Gives correct translation but incorrect rotation
+                    'Z_MINUS': Quaternion((1.0,0.0,0.0), radians(90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))    
+                }
+                for obef in [True,False]:
+                    break
+                    for bot in [True,False]:
+                        for bef in [True,False]:
+                            for l,o in orientations.items():
+                                om = o.to_matrix().to_4x4()
+                                m = objMatrix.copy()
+                                if obef:
+                                    m = om @ m @ om.inverted()
+                                if bot:
+                                    if bef:
+                                        m = Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ m @ Matrix.Rotation(math.radians(90.0), 4, 'X' )
+                                    else:
+                                        m = Matrix.Rotation(math.radians(90.0), 4, 'X' ) @ m @ Matrix.Rotation(math.radians(-90.0), 4, 'X' )
+                                elif bef:
+                                    m = Matrix.Rotation(math.radians(90.0), 4, 'X' ) @ m
+                                else:
+                                    m = m @ Matrix.Rotation(math.radians(90.0), 4, 'X' )
+                                if not obef:
+                                    m = om @ m @ om.inverted()
+
+                                # Get pos/rot/scale
+                                pos = m.to_translation()
+                                rot = m.to_quaternion()
+                                scale = m.to_scale()
+
+                                # Convert pos/rot/scale
+                                position = Vector((pos.x, pos.z, pos.y))
+                                rotation = Quaternion((rot.w, -rot.x, -rot.z, -rot.y))
+                                scale = Vector((scale.x, scale.z, scale.y))
+                                XmlAddAttribute(node, name="LABEL", value=l+('(' if bef else ')'))
+                                XmlAddAttribute(node, name="Position", value=Vector3ToString(position))
+                                XmlAddAttribute(node, name="Rotation", value=Vector4ToString(rotation))
+                
+                #orientation = Quaternion((1.0,0.0,0.0), radians(90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0)) # Puts it behind
+                orientation = Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0)) # Gives right translation but wrong orientation
+                #orientation = Quaternion((1.0,0.0,0.0),0.0) 
+            
+            # Reorient (normally only root objects need to be re-oriented but 
+            # here we need to undo the previous rotation done by DecomposeMesh)
+            if onBone:
+                M = Matrix.Rotation(pi,4,'Z') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' )
+                
+                
+                log.warning(str(M.to_3x3()))
+                log.warning(str(M.to_3x3().inverted()))
+                log.warning(objMatrix)
+                log.warning(objMatrix @ M)
+                log.warning(Matrix.Rotation(pi,4,'Y') @ objMatrix@ Matrix.Rotation(math.radians(-90.0), 4, 'X' ))
+                #log.warning(Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ objMatrix@ Matrix.Rotation(pi,4,'Y'))
+                
+                #objMatrix = objMatrix @ M # Working but X and Z translation are negated. Orientation is right, if the object is directly along the bone's axis.
+                #objMatrix = objMatrix @ M
+                objMatrix = Matrix.Rotation(pi,4,'Y') @ objMatrix @  Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
+            
+            if orientation:
+                om = orientation.to_matrix().to_4x4()
+                objMatrix = om @ objMatrix @ om.inverted()
+            
+
+            # Get pos/rot/scale
+            pos = objMatrix.to_translation()
+            rot = objMatrix.to_quaternion()
+            scale = objMatrix.to_scale()
+
+            # Convert pos/rot/scale
+            position = Vector((pos.x, pos.z, pos.y))
+            rotation = Quaternion((rot.w, -rot.x, -rot.z, -rot.y))
+            scale = Vector((scale.x, scale.z, scale.y))
+        
+        XmlAddAttribute(node, name="Position", value=Vector3ToString(position))
+        XmlAddAttribute(node, name="Rotation", value=Vector4ToString(rotation))
+        XmlAddAttribute(node, name="Scale", value=Vector3ToString(scale))
+        
+
+    ids = {}
+    ids["scene"] = 1
+    ids["node"] = 1
+    ids["component"] = 1
+    
+    rootNode = XmlAddElement(None, "node", ids=ids)
+    XmlAddComponent(rootNode, type="Octree", ids=ids)
+    XmlAddComponent(rootNode, type="DebugRenderer", ids=ids)
+    XmlAddAttribute(rootNode, name="Is Enabled", value="true") #extra
+    XmlAddAttribute(rootNode, name="Name", value=context.scene.name)
+    #XmlAddAttribute(rootNode, name="Tags") #extra
+    #XmlAddAttribute(rootNode, name="Variables") #extra
+    
+    for o in context.scene.objects:
+        if o.parent is not None:
+            continue # Only deal with the top level objects
+        NELExportObject(o,rootNode,ids,extractPosition)
+
+
+    XmlIdSet(rootNode)
+    filepath = GetFilepath(PathType.OBJECTS, context.scene.name, fOptions)
+    if CheckFilepath(filepath[0], fOptions):
+        log.info( "Creating collective prefab {:s}".format(filepath[1]) )
+        WriteXmlFile(rootNode, filepath[0], fOptions)
+
 def UrhoExportScene(context, uScene, sOptions, fOptions):
 
     ids = {}
@@ -456,9 +723,10 @@ def UrhoExportScene(context, uScene, sOptions, fOptions):
             XmlAddAttribute(node, name="Scale", value=Vector3ToString(uSceneModel.scale))
         XmlAddAttribute(node, name="Variables") #extra
 
-        comp = XmlAddComponent(node, type=uSceneModel.type, ids=ids)
-        XmlAddAttribute(comp, name="Model", value="Model;" + modelFile)
-        XmlAddAttribute(comp, name="Material", value="Material" + materials)
+        if uSceneModel.type == 'MESH':
+            comp = XmlAddComponent(node, type=uSceneModel.type, ids=ids)
+            XmlAddAttribute(comp, name="Model", value="Model;" + modelFile)
+            XmlAddAttribute(comp, name="Material", value="Material" + materials)
 
         if sOptions.physics:
             # Use model's bounding box to compute CollisionShape's size and offset
