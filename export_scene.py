@@ -523,8 +523,15 @@ def NELExportScene(context, uScene, sOptions, fOptions):
         else:
             if not sOptions.trasfObjects:
                 return
+            
+            from math import radians,pi
+            
             # Get the local matrix (relative to parent)
             objMatrix = object.matrix_local
+            
+            # Worked only on the Back view
+            #if object.type == 'LIGHT':
+                #objMatrix = objMatrix @ Quaternion((1,0,0),radians(-90)).to_matrix().to_4x4()
             
             orientation = sOptions.orientation
             onBone = False
@@ -537,7 +544,7 @@ def NELExportScene(context, uScene, sOptions, fOptions):
                 objMatrix[1][3] += bone.length
                 backup = objMatrix.copy()
                 # We also need to correct the orientation
-                from math import radians,pi
+                
                 orientations = {
                 
                     'X_PLUS': Quaternion((0.0,0.0,1.0), radians(90.0)),
@@ -686,7 +693,14 @@ def NELExportScene(context, uScene, sOptions, fOptions):
                 #if onBone:
                     #log.warning('Final')
                     #log.warning(objMatrix)
-
+                    
+            if object.type == 'LIGHT':
+                if orientation is None:
+                    orientation = Quaternion((1,0,0),0)
+                om = orientation.to_matrix().to_4x4()
+                # Works only for non-Top/Bottom views.
+                objMatrix = objMatrix @ Quaternion((1,0,0),radians(-90)).to_matrix().to_4x4() #@ om @ Quaternion((1,0,0),radians(-90)).to_matrix().to_4x4() @ om.inverted()
+                
             # Get pos/rot/scale
             pos = objMatrix.to_translation()
             rot = objMatrix.to_quaternion()
