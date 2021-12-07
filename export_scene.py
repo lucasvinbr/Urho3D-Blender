@@ -643,6 +643,8 @@ def NELExportScene(context, uScene, sOptions, fOptions):
                 """
                 # We want to not fix orientation
                 orientation = sOptions.orientation # = Quaternion((0.0,0.0,1.0), radians(-90.0)) for X_MINUS
+                if orientation is None:
+                    orientation = Quaternion((0,0,1),0)
                 matrix = backup
                 matrix = Matrix.Rotation(pi,4,'Y') @ matrix @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
                 ori = (Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))).to_matrix().to_4x4()
