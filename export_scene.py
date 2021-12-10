@@ -270,6 +270,21 @@ def XmlAddAttribute(parent=None, name=None, value=None):
         element.set("value", str(value))
     return element
 
+# Adds to parent an XML element with name "attribute" and attributes 
+# "name" and "value".
+def XmlAddVariant(parent=None, name=None, value=None, type='Float'):
+    if parent is not None:
+        element = ElementTree.SubElement(parent, "variant")
+    else:
+        element = ElementTree.Element("variant")
+    if name is not None:
+        element.set("name", str(name))
+    if type is not None:
+        element.set("type", str(type))
+    if value is not None:
+        element.set("value", str(value))
+    return element
+
 # Removes from 'node' all the child nodes whose attribute 'name' is not 
 # in the list 'values'.
 def XmlNodeFilter(node, name, values):
@@ -398,6 +413,10 @@ def NELExportBone(armature, bone, XMLparent, ids, extractPosition, needBones):
 
 
 def NELExportObject(object, XMLparent, ids, extractPosition):
+    # Skip "Hidden" objects with a . as the start of their name.
+    if object.name.startswith('.'):
+        return
+    
     if object.parent and object.parent.type == 'ARMATURE' and object.parent_type != 'BONE':
         node = XMLparent
         XmlAddAttribute(node, name="Tags", value='NEED TO CONFIRM POSITION IS THE SAME') #extra
@@ -407,9 +426,16 @@ def NELExportObject(object, XMLparent, ids, extractPosition):
         XmlAddAttribute(node, name="Is Enabled", value="true") #extra
         XmlAddAttribute(node, name="Name", value=object.name)
         XmlAddAttribute(node, name="Tags", value=str(object.type)) #extra
-        #XmlAddAttribute(node, name="Variables") #extra
-    
+        
         extractPosition(object,node)
+        
+        if any(n == '_RNA_UI' for n in object.keys()):
+            variables = XmlAddAttribute(node, name="Variables") #extra
+            for n in object.keys():
+                if n == '_RNA_UI':
+                    continue
+                XmlAddVariant(variables,name=n,value=object[n])
+    
         
     
     if object.type == 'MESH':
@@ -453,6 +479,7 @@ def NELExportObject(object, XMLparent, ids, extractPosition):
                 if b.parent is None:
                     NELExportBone(object,b,node,ids,extractPosition,needBones)
             
+    return node
             
             
 
@@ -731,7 +758,14 @@ def NELExportScene(context, uScene, sOptions, fOptions):
     for o in context.scene.objects:
         if o.parent is not None:
             continue # Only deal with the top level objects
-        NELExportObject(o,rootNode,ids,extractPosition)
+        node = NELExportObject(o,rootNode,ids,extractPosition)
+        
+        if node is not None:
+            XmlIdSet(node)
+            filepath = GetFilepath(PathType.OBJECTS, o.name, fOptions)
+            if CheckFilepath(filepath[0], fOptions):
+                log.info( "Creating object prefab {:s}".format(filepath[1]) )
+                WriteXmlFile(node, filepath[0], fOptions)
 
 
     XmlIdSet(rootNode)
