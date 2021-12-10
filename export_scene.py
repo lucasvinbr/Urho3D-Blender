@@ -396,8 +396,8 @@ def NELExportBone(armature, bone, XMLparent, ids, extractPosition, needBones):
     for b in bone.children:
         NELExportBone(armature,b,node,ids,extractPosition,needBones)
 
+
 def NELExportObject(object, XMLparent, ids, extractPosition):
-    
     if object.parent and object.parent.type == 'ARMATURE' and object.parent_type != 'BONE':
         node = XMLparent
         XmlAddAttribute(node, name="Tags", value='NEED TO CONFIRM POSITION IS THE SAME') #extra
@@ -418,7 +418,7 @@ def NELExportObject(object, XMLparent, ids, extractPosition):
         
         comp = XmlAddComponent(node, type='AnimatedModel', ids=ids)
         XmlAddAttribute(comp, name="Model", value="Model;" + modelFile)
-        XmlAddAttribute(comp, name="Material", value="Material" + materials)
+        XmlAddAttribute(comp, name="Material", value="Material;" + materials)
     elif object.type == 'LIGHT':
         comp = XmlAddComponent(node, type="Light", ids=ids)
         ltype = object.data.type
@@ -457,7 +457,6 @@ def NELExportObject(object, XMLparent, ids, extractPosition):
             
 
 def NELExportScene(context, uScene, sOptions, fOptions):
-    
     def extractPosition(object,node):
         if type(object) == bpy.types.Bone:
             bone = object
