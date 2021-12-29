@@ -116,7 +116,7 @@ class TVertex:
             hashValue ^= hash((self.color[3] << 24) | (self.color[2] << 16) | (self.color[1] << 8) | self.color[0])
         return hashValue
     
-    def __str__(self):
+    def __repr__(self):
         s  = "  coords: {: .3f} {: .3f} {: .3f}".format(self.pos.x, self.pos.y, self.pos.z)
         s += "\n normals: {: .3f} {: .3f} {: .3f}".format(self.normal.x, self.normal.y, self.normal.z)
         if self.color:
@@ -142,7 +142,7 @@ class TLodLevel:
         # List of triangles of the LOD (triples of vertex indices)
         self.triangleList = []
 
-    def __str__(self):  
+    def __repr__(self):  
         s = "  distance: {:.3f}\n".format(self.distance)
         s += "  triangles: "
         for i, t in enumerate(self.triangleList):
@@ -159,10 +159,10 @@ class TGeometry:
         # Name of the Blender material associated
         self.materialName = None
 
-    def __str__(self):
-        s = ""
+    def __repr__(self):
+        s = str(self.materialName) + "\n"
         for i, l in enumerate(self.lodLevels):
-            s += " {:d}\n".format(i) + str(l)
+            s += "LOD {:d}\n{}\n".format(i,l)
         return s
 
 #------------------
@@ -180,7 +180,7 @@ class TMorph:
         # Maps vertex index to morphed TVertex
         self.vertexMap = {}
 
-    def __str__(self):  
+    def __repr__(self):  
         s = " name: {:s}\n".format(self.name)
         s += " Vertices: "
         for k, v in sorted(self.vertices.items()):
@@ -243,7 +243,7 @@ class TMaterial:
             return (self.name == other.name)
         return (self.name == other)
 
-    def __str__(self):  
+    def __repr__(self):  
         return (" name: {:s}\n".format(self.name) )
 
 #--------------------
@@ -267,7 +267,7 @@ class TBone:
         # Bone length
         self.length = length
 
-    def __str__(self):
+    def __repr__(self):
         s = " bind pos " + str(self.bindPosition)
         s += "\n bind rot " + str(self.bindRotation) #+ "\n" + str(self.bindRotation.to_axis_angle())
         #s += "\n" + str(self.worldTransform.inverted())
@@ -381,6 +381,7 @@ class TOptions:
         self.doGeometryUV2 = False
         self.doGeometryTan = True
         self.doGeometryWei = True
+        self.doSortGeometry = True
         self.doMorphs = True
         self.doMorphNor = True
         self.doMorphTan = True
@@ -1935,7 +1936,6 @@ def DecomposeMesh(scene, meshObj, tData, tOptions, errorsMem):
     progressTot = 0.01 * len(mesh.loop_triangles)
 
     for tri in mesh.loop_triangles:
-
         if (progressCur % 10) == 0:
             print("{:.3f}%\r".format(progressCur / progressTot), end='' )
         progressCur += 1
@@ -2175,6 +2175,53 @@ def DecomposeMesh(scene, meshObj, tData, tOptions, errorsMem):
                     .format(len(lodLevel.indexSet), meshObj.name, geometryIndex) )
             lodLevels.append(lodLevel)
         GenerateTangents(lodLevels, verticesList, errorsMem)
+            
+    if tOptions.doSortGeometry:
+        # Sort geometriesList, materialsList, materialGeometryMap, updatedGeometryIndices
+        for _ in range(1):
+            print(geometriesList)
+            print(materialGeometryMap)
+            print(materialsList)
+            print(updatedGeometryIndices)
+            
+            print(len(mesh.materials))
+            print(*mesh.materials)
+            
+            if any(m.name not in materialGeometryMap for m in mesh.materials):
+                bad = [m.name for m in mesh.materials if m not in materialGeometryMap]
+                print(f'Could not sort geometry. Could not find material(s) {bad} in {materialGeometryMap}')
+                break;
+            
+            mapping = {m.name:i for i,m in enumerate(mesh.materials)}
+            print(mapping)
+            
+            maplist = [mapping[m.materialName] for m in geometriesList]
+            print('Before',geometriesList,maplist)
+            geometriesList = [x for _,x in sorted(zip(maplist,geometriesList))]
+            print('After',geometriesList)
+            
+            materialGeometryMap = { n:maplist[i] for n,i in materialGeometryMap.items()}
+            updatedGeometryIndices = { maplist[i] for i in updatedGeometryIndices}
+                                   
+            maplist = [mapping[m.name] for m in materialsList]
+            print('Before',materialsList)
+            materialsList = [x for _,x in sorted(zip(maplist,materialsList))]
+            print('After',materialsList)
+            
+            tData.materialGeometryMap = materialGeometryMap
+            tData.geometriesList = geometriesList
+            tData.materialsList = materialsList
+            
+            
+            #[x for _, x in sorted(zip(, X))]
+            
+        if 0:
+            geometryIndex = len(geometriesList)
+            newGeometry = TGeometry()
+            newGeometry.materialName = materialName
+            geometriesList.append(newGeometry)
+            materialGeometryMap[mapMaterialName] = geometryIndex
+            
             
     # Optimize vertex index buffer for the last LOD of every geometry with new vertices
     if tOptions.doOptimizeIndices:
