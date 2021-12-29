@@ -461,6 +461,12 @@ def NELExportObject(object, XMLparent, ids, extractPosition):
         
     elif object.type == 'CAMERA':
         comp = XmlAddComponent(node, type="Camera", ids=ids)
+        
+    # If this object is instancing a Collection (I believe only EMPTYs can do that)
+    if object.instance_type == 'COLLECTION':
+        comp = XmlAddComponent(node, type="Instancer", ids=ids)
+        XmlAddAttribute(comp, name="Object", value=f'Objects/{object.instance_collection.name}.xml')
+        
     
     from collections import defaultdict
     needBones = defaultdict(list)
@@ -760,19 +766,31 @@ def NELExportScene(context, uScene, sOptions, fOptions):
             continue # Only deal with the top level objects
         node = NELExportObject(o,rootNode,ids,extractPosition)
         
-        if node is not None:
-            XmlIdSet(node)
-            filepath = GetFilepath(PathType.OBJECTS, o.name, fOptions)
-            if CheckFilepath(filepath[0], fOptions):
-                log.info( "Creating object prefab {:s}".format(filepath[1]) )
-                WriteXmlFile(node, filepath[0], fOptions)
+        # Export objects nodes (including their children)
+        if sOptions.doObjectsPrefab:
+            if node is not None:
+                XmlIdSet(node)
+                filepath = GetFilepath(PathType.OBJECTS, o.name, fOptions)
+                if CheckFilepath(filepath[0], fOptions):
+                    log.info( "Creating object prefab {:s}".format(filepath[1]) )
+                    WriteXmlFile(node, filepath[0], fOptions)
 
-
+    
     XmlIdSet(rootNode)
-    filepath = GetFilepath(PathType.OBJECTS, context.scene.name, fOptions)
-    if CheckFilepath(filepath[0], fOptions):
-        log.info( "Creating collective prefab {:s}".format(filepath[1]) )
-        WriteXmlFile(rootNode, filepath[0], fOptions)
+
+    # Export a collective node
+    if sOptions.doCollectivePrefab:
+        filepath = GetFilepath(PathType.OBJECTS, context.scene.name, fOptions)
+        if CheckFilepath(filepath[0], fOptions):
+            log.info( "Creating collective prefab {:s}".format(filepath[1]) )
+            WriteXmlFile(rootNode, filepath[0], fOptions)
+        
+        
+    if sOptions.doFullScene: 
+        filepath = GetFilepath(PathType.SCENES, uScene.blenderSceneName, fOptions)
+        if CheckFilepath(filepath[0], fOptions):
+            log.info( "Creating full scene {:s}".format(filepath[1]) )
+            WriteXmlFile(rootNode, filepath[0], fOptions)
 
 def UrhoExportScene(context, uScene, sOptions, fOptions):
 
