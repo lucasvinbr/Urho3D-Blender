@@ -409,6 +409,7 @@ class UrhoExportSettings(bpy.types.PropertyGroup):
         self.objectsPrefab = False
         self.collectivePrefab = False
         self.fullScene = False
+        self.doCollections = True
         self.selectedObjects = False
         self.trasfObjects = False
         self.physics = False
@@ -823,6 +824,12 @@ class UrhoExportSettings(bpy.types.PropertyGroup):
             description = "Create a Urho3D scene",
             default = False,
             update = update_func)
+    
+    doCollections: BoolProperty(
+            name = "Collections to Object",
+            description = "Create Urho3D object prefabs from the Collections",
+            default = False,
+            update = update_func)
 
     selectedObjects: BoolProperty(
             name = "Only selected objects",
@@ -1175,6 +1182,11 @@ class UrhoExportRenderPanel(bpy.types.Panel):
                 row.separator()
                 row.separator()
                 row.prop(settings, "selectedObjects")
+                
+            row = box.row()
+            row.separator()
+            row.prop(settings, "doCollections")
+            row.label(text = "", icon='GROUP')
 
             row = box.row()
             row.separator()
@@ -1438,6 +1450,7 @@ def ExecuteUrhoExport(context):
     sOptions.doObjectsPrefab = settings.objectsPrefab
     sOptions.doCollectivePrefab = settings.collectivePrefab
     sOptions.doFullScene = settings.fullScene
+    sOptions.doCollections = settings.doCollections
     sOptions.onlySelected = settings.selectedObjects
     sOptions.trasfObjects = settings.trasfObjects
     sOptions.globalOrigin = tOptions.globalOrigin

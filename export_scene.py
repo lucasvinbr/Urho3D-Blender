@@ -45,6 +45,7 @@ class SOptions:
         self.doObjectsPrefab = False
         self.doCollectivePrefab = False
         self.doFullScene = False
+        self.doCollections = False
         self.onlySelected = False
         self.physics = False
         self.collisionShape = None
@@ -396,23 +397,285 @@ def UrhoWriteMaterialsList(uScene, uModel, filepath):
 # Export scene and nodes
 #------------------------
 
-def NELExportBone(armature, bone, XMLparent, ids, extractPosition, needBones):
+globalSOptions = None
+
+def NELExtractPosition(object,node):
+    sOptions = globalSOptions
+    if type(object) == bpy.types.Bone:
+        bone = object
+        tOptions = sOptions
+        
+        # From decompose.py
+        # 'bone.matrix_local' is referred to the armature, we need
+        # the transformation between the current bone and its parent.
+        boneMatrix = bone.matrix_local.copy()
+        
+        # Here 'bone.matrix_local' is in object(armature) space, so we have to
+        # calculate the bone transformation in parent bone space
+        if bone.parent:
+            boneMatrix = bone.parent.matrix_local.inverted() @ boneMatrix
+        else:
+            #boneMatrix = originMatrix @ boneMatrix
+            if tOptions.orientation:
+                boneMatrix = tOptions.orientation.to_matrix().to_4x4() @ boneMatrix
+            # Normally we don't have to worry that Blender is Z up and we want
+            # Y up because we use relative transformations between bones. However
+            # the parent bone is relative to the armature so we need to convert
+            # Z up to Y up by rotating its matrix by -90° on X
+            boneMatrix = Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ boneMatrix
+
+        if tOptions.scale != 1.0:
+            boneMatrix.translation *= tOptions.scale
+
+        # Extract position and rotation relative to parent in parent space        
+        t = boneMatrix.to_translation()
+        q = boneMatrix.to_quaternion()
+        s = boneMatrix.to_scale()
+                
+        # Convert position and rotation to left hand:
+        tl = Vector((t.x, t.y, -t.z))
+        ql = Quaternion((q.w, -q.x, -q.y, q.z))
+        sl = Vector((s.x, s.y, s.z))
+        
+        # Now we need the bone matrix relative to the armature. 'matrix_local' is
+        # what we are looking for, but it needs to be converted:
+        # 1) rotate of -90° on X axis:
+        # - swap column 1 with column 2
+        # - negate column 1
+        # 2) convert bone transformation in object space to left hand:        
+        # - swap row 1 with row 2
+        # - swap column 1 with column 2
+        # So putting them together:
+        # - swap row 1 with row 2
+        # - negate column 2
+        ml = bone.matrix_local.copy()
+        if tOptions.orientation:
+            ml = tOptions.orientation.to_matrix().to_4x4() @ ml
+        if tOptions.scale != 1.0:
+            ml.translation *= tOptions.scale
+        (ml[1][:], ml[2][:]) = (ml[2][:], ml[1][:])
+        ml[0][2] = -ml[0][2]
+        ml[1][2] = -ml[1][2]
+        ml[2][2] = -ml[2][2]
+
+        # Create a new bone
+        position = tl
+        rotation = ql
+        scale = sl
+    else:
+        if not sOptions.trasfObjects:
+            return
+        
+        from math import radians,pi
+        
+        # Get the local matrix (relative to parent)
+        objMatrix = object.matrix_local
+        
+        # Worked only on the Back view
+        #if object.type == 'LIGHT':
+            #objMatrix = objMatrix @ Quaternion((1,0,0),radians(-90)).to_matrix().to_4x4()
+        
+        orientation = sOptions.orientation
+        onBone = False
+        # Blender's Parent to Bone feature parents it to the point of the bone, while urho only uses the socket (other) end.
+        # As such, we have to offset the matrix by the bone length or it will be incorrect.
+        if object.parent and object.parent_type == 'BONE':
+            onBone = True
+            bone = object.parent.data.bones[object.parent_bone]
+            objMatrix = Matrix(objMatrix) # Copy so we don't modify the object
+            objMatrix[1][3] += bone.length
+            backup = objMatrix.copy()
+            # We also need to correct the orientation
+            
+            orientations = {
+            
+                'X_PLUS': Quaternion((0.0,0.0,1.0), radians(90.0)),
+                'X_MINUS': Quaternion((0.0,0.0,1.0), radians(-90.0)),
+                'Y_PLUS': Quaternion((0.0,0.0,1.0), radians(0.0)),
+                'Y_MINUS': Quaternion((0.0,0.0,1.0), radians(180.0)),
+                'Z_PLUS': Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0)), # Gives correct translation but incorrect rotation
+                'Z_MINUS': Quaternion((1.0,0.0,0.0), radians(90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))    
+            }
+            for obef in [True,False]:
+                break
+                for bot in [True,False]:
+                    for bef in [True,False]:
+                        for l,o in orientations.items():
+                            om = o.to_matrix().to_4x4()
+                            m = objMatrix.copy()
+                            if obef:
+                                m = om @ m @ om.inverted()
+                            if bot:
+                                if bef:
+                                    m = Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ m @ Matrix.Rotation(math.radians(90.0), 4, 'X' )
+                                else:
+                                    m = Matrix.Rotation(math.radians(90.0), 4, 'X' ) @ m @ Matrix.Rotation(math.radians(-90.0), 4, 'X' )
+                            elif bef:
+                                m = Matrix.Rotation(math.radians(90.0), 4, 'X' ) @ m
+                            else:
+                                m = m @ Matrix.Rotation(math.radians(90.0), 4, 'X' )
+                            if not obef:
+                                m = om @ m @ om.inverted()
+
+                            # Get pos/rot/scale
+                            pos = m.to_translation()
+                            rot = m.to_quaternion()
+                            scale = m.to_scale()
+
+                            # Convert pos/rot/scale
+                            position = Vector((pos.x, pos.z, pos.y))
+                            rotation = Quaternion((rot.w, -rot.x, -rot.z, -rot.y))
+                            scale = Vector((scale.x, scale.z, scale.y))
+                            XmlAddAttribute(node, name="LABEL", value=l+('(' if bef else ')'))
+                            XmlAddAttribute(node, name="Position", value=Vector3ToString(position))
+                            XmlAddAttribute(node, name="Rotation", value=Vector4ToString(rotation))
+            
+            #orientation = Quaternion((1.0,0.0,0.0), radians(90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0)) # Puts it behind
+            orientation = Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0)) # Gives right translation but wrong orientation
+            #orientation = Quaternion((1.0,0.0,0.0),0.0) 
+        
+        # Reorient (normally only root objects need to be re-oriented but 
+        # here we need to undo the previous rotation done by DecomposeMesh)
+        if onBone:
+            M = Matrix.Rotation(pi,4,'Z') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' )
+            
+            
+            #log.warning(str(M.to_3x3()))
+            #log.warning(str(M.to_3x3().inverted()))
+            #log.warning(objMatrix)
+            #log.warning(objMatrix @ M)
+            #log.warning(Matrix.Rotation(pi,4,'Y') @ objMatrix@ Matrix.Rotation(math.radians(-90.0), 4, 'X' ))
+            #log.warning(Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ objMatrix@ Matrix.Rotation(pi,4,'Y'))
+            
+            #objMatrix = objMatrix @ M # Working but X and Z translation are negated. Orientation is right, if the object is directly along the bone's axis.
+            #objMatrix = objMatrix @ M
+            
+            # This is working for Left (X_MINUS) view. But not for Front.
+            objMatrix = Matrix.Rotation(pi,4,'Y') @ objMatrix @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
+            
+            log.warning('Worked for X_MINUS')
+            log.warning(orientation.to_matrix().to_4x4() @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ))
+            log.warning(Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ) @ orientation.to_matrix().to_4x4().inverted())
+            
+            log.warning('Orientation for X_MINUS')
+            log.warning(orientations['X_MINUS'].to_matrix().to_4x4())
+            log.warning(orientations['X_MINUS'].to_matrix().to_4x4().inverted())
+            
+            log.warning('Proposed correct')
+            xm = orientations['X_MINUS'].to_matrix().to_4x4()
+            ori = (Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))).to_matrix().to_4x4()
+            log.warning(xm.inverted() @ ori @ 
+                        Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ))
+            log.warning(Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ) @ ori @ xm)
+            
+            #objMatrix = Matrix((( 0.0000, -1.0000, 0.0000, 0.0000),
+                #( 0.0000,  0.0000, 1.0000, 0.0000),
+                #(-1.0000, -0.0000, 0.0000, 0.0000),
+                #( 0.0000,  0.0000, 0.0000, 1.0000))) @ objMatrix
+        
+            
+            # Compare with our proposed ideal case:
+        
+            """ Ops above (and below with the orientation) are 
+            objMatrix = Matrix.Rotation(pi,4,'Y') @ objMatrix @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
+            orientation = Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))
+            om = orientation.to_matrix().to_4x4()
+            objMatrix = om @ objMatrix @ om.inverted()
+            
+            In other words
+            
+            X-90 Z+180 Y+180 _M_ Y+180 X-90 Y+90 (X-90 Z+180)^-1
+            OR
+            X-90 Z+180 Y+180 _M_ Y+180 X-90 Y+90 Z+180 X+90
+            OR
+            X-90 Z+180 Y+180
+            """
+            # We want to not fix orientation
+            orientation = sOptions.orientation # = Quaternion((0.0,0.0,1.0), radians(-90.0)) for X_MINUS
+            if orientation is None:
+                orientation = Quaternion((0,0,1),0)
+            matrix = backup
+            matrix = Matrix.Rotation(pi,4,'Y') @ matrix @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
+            ori = (Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))).to_matrix().to_4x4()
+            matrix = ori @ matrix @ ori.inverted()
+            
+            xm = Quaternion((0.0,0.0,1.0), radians(-90.0)).to_matrix().to_4x4()
+            matrix = xm.inverted() @ matrix @ xm
+            # At end : 
+            om = orientation.to_matrix().to_4x4()
+            matrix = om @ matrix @ om.inverted()
+            # For X_MINUS this is Z-90 _M_ Z+90
+            
+            log.warning('Check')
+            log.warning(matrix)
+            
+            LEFT = xm.inverted() @ ori @ Matrix.Rotation(pi,4,'Y')
+            RIGHT = Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ) @ ori.inverted() @ xm
+            log.warning('Check2')
+            log.warning(om @ LEFT @ backup @ RIGHT @ om.inverted())
+            log.warning(LEFT)
+            log.warning(RIGHT)
+            
+            LEFT = Matrix(((0,0,1,0),(1,0,0,0),(0,1,0,0),(0,0,0,1)))
+            RIGHT = Matrix.Identity(4)
+            
+            objMatrix = LEFT @ backup @ RIGHT
+            
+            om = orientation.to_matrix().to_4x4()
+            #objMatrix = om @ objMatrix @ om.inverted()
+            objMatrix = xm @ objMatrix @ om.inverted() # This line works for all but back, which has None orientation
+            
+            
+            log.warning('Final')
+            log.warning(objMatrix)
+        
+        elif orientation: # Try removing this point of variation from the bones
+            om = orientation.to_matrix().to_4x4()
+            objMatrix = om @ objMatrix @ om.inverted()
+            #if onBone:
+                #log.warning('Final')
+                #log.warning(objMatrix)
+                
+        if object.type == 'LIGHT':
+            if orientation is None:
+                orientation = Quaternion((1,0,0),0)
+            om = orientation.to_matrix().to_4x4()
+            # Works only for non-Top/Bottom views.
+            objMatrix = objMatrix @ Quaternion((1,0,0),radians(-90)).to_matrix().to_4x4() #@ om @ Quaternion((1,0,0),radians(-90)).to_matrix().to_4x4() @ om.inverted()
+            
+        # Get pos/rot/scale
+        pos = objMatrix.to_translation()
+        rot = objMatrix.to_quaternion()
+        scale = objMatrix.to_scale()
+
+        # Convert pos/rot/scale
+        position = Vector((pos.x, pos.z, pos.y))
+        rotation = Quaternion((rot.w, -rot.x, -rot.z, -rot.y))
+        scale = Vector((scale.x, scale.z, scale.y))
+    
+    XmlAddAttribute(node, name="Position", value=Vector3ToString(position))
+    XmlAddAttribute(node, name="Rotation", value=Vector4ToString(rotation))
+    XmlAddAttribute(node, name="Scale", value=Vector3ToString(scale))
+    
+
+
+def NELExportBone(armature, bone, XMLparent, ids, needBones):
     node = XmlAddElement(XMLparent, "node", ids=ids)
     XmlAddAttribute(node, name="Is Enabled", value="true") #extra
     XmlAddAttribute(node, name="Name", value=bone.name)
     XmlAddAttribute(node, name="Tags", value='BONE') #extra
     
-    extractPosition(bone,node)
+    NELExtractPosition(bone,node)
     
     if bone.name in needBones:
         for o in needBones[bone.name]:
-            NELExportObject(o,node,ids,extractPosition)
+            NELExportObject(o,node,ids)
         
     for b in bone.children:
-        NELExportBone(armature,b,node,ids,extractPosition,needBones)
+        NELExportBone(armature,b,node,ids,needBones)
 
 
-def NELExportObject(object, XMLparent, ids, extractPosition):
+def NELExportObject(object, XMLparent, ids):
     # Skip "Hidden" objects with a . as the start of their name.
     if object.name.startswith('.'):
         return
@@ -427,7 +690,7 @@ def NELExportObject(object, XMLparent, ids, extractPosition):
         XmlAddAttribute(node, name="Name", value=object.name)
         XmlAddAttribute(node, name="Tags", value=str(object.type)) #extra
         
-        extractPosition(object,node)
+        NELExtractPosition(object,node)
         
         if any(n == '_RNA_UI' for n in object.keys()):
             variables = XmlAddAttribute(node, name="Variables") #extra
@@ -472,7 +735,7 @@ def NELExportObject(object, XMLparent, ids, extractPosition):
     needBones = defaultdict(list)
     for o in object.children:
         if o.parent_type != 'BONE':
-            NELExportObject(o,node,ids,extractPosition)
+            NELExportObject(o,node,ids)
         else:
             needBones[o.parent_bone].append(o)
     if needBones:
@@ -483,275 +746,49 @@ def NELExportObject(object, XMLparent, ids, extractPosition):
             rootBones = []
             for b in arma.bones:
                 if b.parent is None:
-                    NELExportBone(object,b,node,ids,extractPosition,needBones)
+                    NELExportBone(object,b,node,ids,needBones)
             
     return node
             
-            
+    
+def NELExportCollection(collection, sOptions, ids, rootNode = None):
+    
+    if rootNode is None:
+        rootNode = XmlAddElement(None, "node", ids=ids)
+        XmlAddAttribute(rootNode, name="Is Enabled", value="true") #extra
+        XmlAddAttribute(rootNode, name="Name", value=collection.name)
+        XmlAddAttribute(rootNode, name="Tags", value="COLLECTION")
+        #XmlAddAttribute(rootNode, name="Variables") #extra
+    
+    for o in collection.objects:
+        if o.parent is not None:
+            continue # Only deal with the top level objects
+        node = NELExportObject(o,rootNode,ids)
+        
+        # Export objects nodes (including their children)
+        if False and sOptions.doObjectsPrefab:
+            if node is not None:
+                XmlIdSet(node)
+                filepath = GetFilepath(PathType.OBJECTS, o.name, fOptions)
+                if CheckFilepath(filepath[0], fOptions):
+                    log.info( "Creating object prefab {:s}".format(filepath[1]) )
+                    WriteXmlFile(node, filepath[0], fOptions)
+                    
+    for c in collection.children:
+        # TODO: Test if it is hidden?
+        NELExportCollection(c,sOptions,ids,rootNode)
+                    
+    return rootNode
 
 def NELExportScene(context, uScene, sOptions, fOptions):
-    def extractPosition(object,node):
-        if type(object) == bpy.types.Bone:
-            bone = object
-            tOptions = sOptions
-            
-            # From decompose.py
-            # 'bone.matrix_local' is referred to the armature, we need
-            # the transformation between the current bone and its parent.
-            boneMatrix = bone.matrix_local.copy()
-            
-            # Here 'bone.matrix_local' is in object(armature) space, so we have to
-            # calculate the bone transformation in parent bone space
-            if bone.parent:
-                boneMatrix = bone.parent.matrix_local.inverted() @ boneMatrix
-            else:
-                #boneMatrix = originMatrix @ boneMatrix
-                if tOptions.orientation:
-                    boneMatrix = tOptions.orientation.to_matrix().to_4x4() @ boneMatrix
-                # Normally we don't have to worry that Blender is Z up and we want
-                # Y up because we use relative transformations between bones. However
-                # the parent bone is relative to the armature so we need to convert
-                # Z up to Y up by rotating its matrix by -90° on X
-                boneMatrix = Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ boneMatrix
-
-            if tOptions.scale != 1.0:
-                boneMatrix.translation *= tOptions.scale
-
-            # Extract position and rotation relative to parent in parent space        
-            t = boneMatrix.to_translation()
-            q = boneMatrix.to_quaternion()
-            s = boneMatrix.to_scale()
-                    
-            # Convert position and rotation to left hand:
-            tl = Vector((t.x, t.y, -t.z))
-            ql = Quaternion((q.w, -q.x, -q.y, q.z))
-            sl = Vector((s.x, s.y, s.z))
-            
-            # Now we need the bone matrix relative to the armature. 'matrix_local' is
-            # what we are looking for, but it needs to be converted:
-            # 1) rotate of -90° on X axis:
-            # - swap column 1 with column 2
-            # - negate column 1
-            # 2) convert bone transformation in object space to left hand:        
-            # - swap row 1 with row 2
-            # - swap column 1 with column 2
-            # So putting them together:
-            # - swap row 1 with row 2
-            # - negate column 2
-            ml = bone.matrix_local.copy()
-            if tOptions.orientation:
-                ml = tOptions.orientation.to_matrix().to_4x4() @ ml
-            if tOptions.scale != 1.0:
-                ml.translation *= tOptions.scale
-            (ml[1][:], ml[2][:]) = (ml[2][:], ml[1][:])
-            ml[0][2] = -ml[0][2]
-            ml[1][2] = -ml[1][2]
-            ml[2][2] = -ml[2][2]
-
-            # Create a new bone
-            position = tl
-            rotation = ql
-            scale = sl
-        else:
-            if not sOptions.trasfObjects:
-                return
-            
-            from math import radians,pi
-            
-            # Get the local matrix (relative to parent)
-            objMatrix = object.matrix_local
-            
-            # Worked only on the Back view
-            #if object.type == 'LIGHT':
-                #objMatrix = objMatrix @ Quaternion((1,0,0),radians(-90)).to_matrix().to_4x4()
-            
-            orientation = sOptions.orientation
-            onBone = False
-            # Blender's Parent to Bone feature parents it to the point of the bone, while urho only uses the socket (other) end.
-            # As such, we have to offset the matrix by the bone length or it will be incorrect.
-            if object.parent and object.parent_type == 'BONE':
-                onBone = True
-                bone = object.parent.data.bones[object.parent_bone]
-                objMatrix = Matrix(objMatrix) # Copy so we don't modify the object
-                objMatrix[1][3] += bone.length
-                backup = objMatrix.copy()
-                # We also need to correct the orientation
-                
-                orientations = {
-                
-                    'X_PLUS': Quaternion((0.0,0.0,1.0), radians(90.0)),
-                    'X_MINUS': Quaternion((0.0,0.0,1.0), radians(-90.0)),
-                    'Y_PLUS': Quaternion((0.0,0.0,1.0), radians(0.0)),
-                    'Y_MINUS': Quaternion((0.0,0.0,1.0), radians(180.0)),
-                    'Z_PLUS': Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0)), # Gives correct translation but incorrect rotation
-                    'Z_MINUS': Quaternion((1.0,0.0,0.0), radians(90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))    
-                }
-                for obef in [True,False]:
-                    break
-                    for bot in [True,False]:
-                        for bef in [True,False]:
-                            for l,o in orientations.items():
-                                om = o.to_matrix().to_4x4()
-                                m = objMatrix.copy()
-                                if obef:
-                                    m = om @ m @ om.inverted()
-                                if bot:
-                                    if bef:
-                                        m = Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ m @ Matrix.Rotation(math.radians(90.0), 4, 'X' )
-                                    else:
-                                        m = Matrix.Rotation(math.radians(90.0), 4, 'X' ) @ m @ Matrix.Rotation(math.radians(-90.0), 4, 'X' )
-                                elif bef:
-                                    m = Matrix.Rotation(math.radians(90.0), 4, 'X' ) @ m
-                                else:
-                                    m = m @ Matrix.Rotation(math.radians(90.0), 4, 'X' )
-                                if not obef:
-                                    m = om @ m @ om.inverted()
-
-                                # Get pos/rot/scale
-                                pos = m.to_translation()
-                                rot = m.to_quaternion()
-                                scale = m.to_scale()
-
-                                # Convert pos/rot/scale
-                                position = Vector((pos.x, pos.z, pos.y))
-                                rotation = Quaternion((rot.w, -rot.x, -rot.z, -rot.y))
-                                scale = Vector((scale.x, scale.z, scale.y))
-                                XmlAddAttribute(node, name="LABEL", value=l+('(' if bef else ')'))
-                                XmlAddAttribute(node, name="Position", value=Vector3ToString(position))
-                                XmlAddAttribute(node, name="Rotation", value=Vector4ToString(rotation))
-                
-                #orientation = Quaternion((1.0,0.0,0.0), radians(90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0)) # Puts it behind
-                orientation = Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0)) # Gives right translation but wrong orientation
-                #orientation = Quaternion((1.0,0.0,0.0),0.0) 
-            
-            # Reorient (normally only root objects need to be re-oriented but 
-            # here we need to undo the previous rotation done by DecomposeMesh)
-            if onBone:
-                M = Matrix.Rotation(pi,4,'Z') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' )
-                
-                
-                #log.warning(str(M.to_3x3()))
-                #log.warning(str(M.to_3x3().inverted()))
-                #log.warning(objMatrix)
-                #log.warning(objMatrix @ M)
-                #log.warning(Matrix.Rotation(pi,4,'Y') @ objMatrix@ Matrix.Rotation(math.radians(-90.0), 4, 'X' ))
-                #log.warning(Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ objMatrix@ Matrix.Rotation(pi,4,'Y'))
-                
-                #objMatrix = objMatrix @ M # Working but X and Z translation are negated. Orientation is right, if the object is directly along the bone's axis.
-                #objMatrix = objMatrix @ M
-                
-                # This is working for Left (X_MINUS) view. But not for Front.
-                objMatrix = Matrix.Rotation(pi,4,'Y') @ objMatrix @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
-                
-                log.warning('Worked for X_MINUS')
-                log.warning(orientation.to_matrix().to_4x4() @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ))
-                log.warning(Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ) @ orientation.to_matrix().to_4x4().inverted())
-                
-                log.warning('Orientation for X_MINUS')
-                log.warning(orientations['X_MINUS'].to_matrix().to_4x4())
-                log.warning(orientations['X_MINUS'].to_matrix().to_4x4().inverted())
-                
-                log.warning('Proposed correct')
-                xm = orientations['X_MINUS'].to_matrix().to_4x4()
-                ori = (Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))).to_matrix().to_4x4()
-                log.warning(xm.inverted() @ ori @ 
-                            Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ))
-                log.warning(Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ) @ ori @ xm)
-                
-                #objMatrix = Matrix((( 0.0000, -1.0000, 0.0000, 0.0000),
-                    #( 0.0000,  0.0000, 1.0000, 0.0000),
-                    #(-1.0000, -0.0000, 0.0000, 0.0000),
-                    #( 0.0000,  0.0000, 0.0000, 1.0000))) @ objMatrix
-            
-                
-                # Compare with our proposed ideal case:
-            
-                """ Ops above (and below with the orientation) are 
-                objMatrix = Matrix.Rotation(pi,4,'Y') @ objMatrix @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
-                orientation = Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))
-                om = orientation.to_matrix().to_4x4()
-                objMatrix = om @ objMatrix @ om.inverted()
-                
-                In other words
-                
-                X-90 Z+180 Y+180 _M_ Y+180 X-90 Y+90 (X-90 Z+180)^-1
-                OR
-                X-90 Z+180 Y+180 _M_ Y+180 X-90 Y+90 Z+180 X+90
-                OR
-                X-90 Z+180 Y+180
-                """
-                # We want to not fix orientation
-                orientation = sOptions.orientation # = Quaternion((0.0,0.0,1.0), radians(-90.0)) for X_MINUS
-                if orientation is None:
-                    orientation = Quaternion((0,0,1),0)
-                matrix = backup
-                matrix = Matrix.Rotation(pi,4,'Y') @ matrix @ Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' )
-                ori = (Quaternion((1.0,0.0,0.0), radians(-90.0)) @ Quaternion((0.0,0.0,1.0), radians(180.0))).to_matrix().to_4x4()
-                matrix = ori @ matrix @ ori.inverted()
-                
-                xm = Quaternion((0.0,0.0,1.0), radians(-90.0)).to_matrix().to_4x4()
-                matrix = xm.inverted() @ matrix @ xm
-                # At end : 
-                om = orientation.to_matrix().to_4x4()
-                matrix = om @ matrix @ om.inverted()
-                # For X_MINUS this is Z-90 _M_ Z+90
-                
-                log.warning('Check')
-                log.warning(matrix)
-                
-                LEFT = xm.inverted() @ ori @ Matrix.Rotation(pi,4,'Y')
-                RIGHT = Matrix.Rotation(pi,4,'Y') @ Matrix.Rotation(math.radians(-90.0), 4, 'X' ) @ Matrix.Rotation(math.radians(90.0), 4, 'Y' ) @ ori.inverted() @ xm
-                log.warning('Check2')
-                log.warning(om @ LEFT @ backup @ RIGHT @ om.inverted())
-                log.warning(LEFT)
-                log.warning(RIGHT)
-                
-                LEFT = Matrix(((0,0,1,0),(1,0,0,0),(0,1,0,0),(0,0,0,1)))
-                RIGHT = Matrix.Identity(4)
-                
-                objMatrix = LEFT @ backup @ RIGHT
-                
-                om = orientation.to_matrix().to_4x4()
-                #objMatrix = om @ objMatrix @ om.inverted()
-                objMatrix = xm @ objMatrix @ om.inverted() # This line works for all but back, which has None orientation
-                
-                
-                log.warning('Final')
-                log.warning(objMatrix)
-            
-            elif orientation: # Try removing this point of variation from the bones
-                om = orientation.to_matrix().to_4x4()
-                objMatrix = om @ objMatrix @ om.inverted()
-                #if onBone:
-                    #log.warning('Final')
-                    #log.warning(objMatrix)
-                    
-            if object.type == 'LIGHT':
-                if orientation is None:
-                    orientation = Quaternion((1,0,0),0)
-                om = orientation.to_matrix().to_4x4()
-                # Works only for non-Top/Bottom views.
-                objMatrix = objMatrix @ Quaternion((1,0,0),radians(-90)).to_matrix().to_4x4() #@ om @ Quaternion((1,0,0),radians(-90)).to_matrix().to_4x4() @ om.inverted()
-                
-            # Get pos/rot/scale
-            pos = objMatrix.to_translation()
-            rot = objMatrix.to_quaternion()
-            scale = objMatrix.to_scale()
-
-            # Convert pos/rot/scale
-            position = Vector((pos.x, pos.z, pos.y))
-            rotation = Quaternion((rot.w, -rot.x, -rot.z, -rot.y))
-            scale = Vector((scale.x, scale.z, scale.y))
-        
-        XmlAddAttribute(node, name="Position", value=Vector3ToString(position))
-        XmlAddAttribute(node, name="Rotation", value=Vector4ToString(rotation))
-        XmlAddAttribute(node, name="Scale", value=Vector3ToString(scale))
-        
 
     ids = {}
     ids["scene"] = 1
     ids["node"] = 1
     ids["component"] = 1
+    
+    global globalSOptions
+    globalSOptions = sOptions
     
     rootNode = XmlAddElement(None, "node", ids=ids)
     XmlAddComponent(rootNode, type="Octree", ids=ids)
@@ -762,9 +799,10 @@ def NELExportScene(context, uScene, sOptions, fOptions):
     #XmlAddAttribute(rootNode, name="Variables") #extra
     
     for o in context.scene.objects:
+    #for o in context.scene.collection.objects:
         if o.parent is not None:
             continue # Only deal with the top level objects
-        node = NELExportObject(o,rootNode,ids,extractPosition)
+        node = NELExportObject(o,rootNode,ids)
         
         # Export objects nodes (including their children)
         if sOptions.doObjectsPrefab:
@@ -786,11 +824,21 @@ def NELExportScene(context, uScene, sOptions, fOptions):
             WriteXmlFile(rootNode, filepath[0], fOptions)
         
         
+    # Export scene
     if sOptions.doFullScene: 
         filepath = GetFilepath(PathType.SCENES, uScene.blenderSceneName, fOptions)
         if CheckFilepath(filepath[0], fOptions):
             log.info( "Creating full scene {:s}".format(filepath[1]) )
             WriteXmlFile(rootNode, filepath[0], fOptions)
+            
+    # Export Collections as instance prefabs
+    if sOptions.doCollections:
+        for c in context.scene.collection.children:
+            node = NELExportCollection(c, sOptions, ids)
+            filepath = GetFilepath(PathType.OBJECTS, c.name, fOptions)
+            if CheckFilepath(filepath[0], fOptions):
+                log.info( "Creating collectiion prefab {:s}".format(filepath[1]) )
+                WriteXmlFile(node, filepath[0], fOptions)
 
 def UrhoExportScene(context, uScene, sOptions, fOptions):
 
