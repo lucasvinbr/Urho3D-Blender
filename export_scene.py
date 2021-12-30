@@ -700,7 +700,7 @@ def NELExportObject(object, XMLparent, ids):
                 XmlAddVariant(variables,name=n,value=object[n])
     
         
-    
+    modelFile = None
     if object.type == 'MESH':
         modelFile = f"Models/{object.name}.mdl"
         materials = ';'.join(f"Materials/{m.name}.xml" for m in object.data.materials)
@@ -729,6 +729,70 @@ def NELExportObject(object, XMLparent, ids):
     if object.instance_type == 'COLLECTION':
         comp = XmlAddComponent(node, type="Instancer", ids=ids)
         XmlAddAttribute(comp, name="Object", value=f'Objects/{object.instance_collection.name}.xml')
+        
+    # Add rigid body if needed
+    if object.rigid_body is not None:
+        rb = object.rigid_body
+        comp = XmlAddComponent(node, type="RigidBody", ids=ids)
+        #XmlAddAttribute(comp, name="Is Enabled", value=True ) # # bool
+        XmlAddAttribute(comp, name="Mass", value=rb.mass ) # # float
+        XmlAddAttribute(comp, name="Friction", value=rb.friction ) # # float
+        #XmlAddAttribute(comp, name="Anisotropic Friction", value=rb. ) # # Vector3
+        #XmlAddAttribute(comp, name="Rolling Friction", value=rb. ) # # float
+        XmlAddAttribute(comp, name="Restitution", value=rb.restitution ) # # float
+        #XmlAddAttribute(comp, name="Linear Velocity", value=rb. ) # # Vector3
+        #XmlAddAttribute(comp, name="Angular Velocity", value=rb. ) # # Vector3
+        #XmlAddAttribute(comp, name="Linear Factor", value=rb. ) # # Vector3
+        #XmlAddAttribute(comp, name="Angular Factor", value=rb. ) # # Vector3
+        XmlAddAttribute(comp, name="Linear Damping", value=rb.linear_damping ) # # float
+        XmlAddAttribute(comp, name="Angular Damping", value=rb.angular_damping ) # # float
+        #XmlAddAttribute(comp, name="Linear Rest Threshold", value=rb. ) # # float
+        #XmlAddAttribute(comp, name="Angular Rest Threshold", value=rb. ) # # float
+        cgroup = sum(2**i for i,v in enumerate(rb.collision_collections))
+        XmlAddAttribute(comp, name="Collision Layer", value=cgroup ) # # int
+        #XmlAddAttribute(comp, name="Collision Mask", value=rb. ) # # int
+        #XmlAddAttribute(comp, name="Contact Threshold", value=rb. ) # # float
+        #XmlAddAttribute(comp, name="CCD Radius", value=rb. ) # # float
+        #XmlAddAttribute(comp, name="CCD Motion Threshold", value=rb. ) # # float
+        #XmlAddAttribute(comp, name="Collision Event Mode", value=rb. ) # # int
+        #XmlAddAttribute(comp, name="Use Gravity", value=rb. ) # # bool
+        XmlAddAttribute(comp, name="Is Kinematic", value=rb.kinematic ) # # bool
+        #XmlAddAttribute(comp, name="Is Trigger", value=rb. ) # # bool
+        #XmlAddAttribute(comp, name="Gravity Override", value=rb. ) # # Vector3
+        
+        shapes = {
+            "BOX" : "Box",
+            "SPHERE" : "Sphere",
+            "CAPSULE" : "Capsule",
+            "CYLINDER" : "Cylinder",
+            "CONE" : "Cone",
+            "CONVEX_HULL" : "ConvexHull",
+            "MESH" : "TriangleMesh",
+            #"COMPOUND_PARENT" : None,
+            #1 : "StaticPlane", # Types that are not supported by blender
+            #2 : "Terrain",
+            #3 : "GImpactMesh"
+        }
+        
+        colcomp = XmlAddComponent(node, type="CollisionShape", ids=ids)
+        #XmlAddAttribute(colcomp, name="Is Enabled", value=True ) # bool
+        if rb.collision_shape in shapes:
+            XmlAddAttribute(colcomp, name="Shape Type", value=shapes[rb.collision_shape]) # enum
+        elif rb.collision_shape == "COMPOUND_PARENT":
+            log.warning("Currently compound shapes are not handled")
+            #XmlAddAttribute(colcomp, name="Shape Type", value=shapes[rb.collision_shape]) # enum
+        else:
+            log.warning("Unknown collision shape " + rb.collision_shape)
+        #XmlAddAttribute(colcomp, name="Size", value=rb. ) # Vector3
+        #XmlAddAttribute(colcomp, name="Offset Position", value=rb. ) # Vector3
+        #XmlAddAttribute(colcomp, name="Offset Rotation", value=rb. ) # Quaternion
+        #XmlAddAttribute(colcomp, name="Model", value=rb. ) # ResourceRef
+        #XmlAddAttribute(colcomp, name="LOD Level", value=rb. ) # int
+        #XmlAddAttribute(colcomp, name="Collision Margin", value=rb. ) # float
+        #XmlAddAttribute(colcomp, name="CustomGeometry ComponentID", value=rb. ) # int
+
+        
+        
         
     
     from collections import defaultdict

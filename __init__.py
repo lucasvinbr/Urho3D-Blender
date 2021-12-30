@@ -1606,7 +1606,7 @@ def ExecuteUrhoExport(context):
     
     # Export scene and nodes
     if settings.prefabs:
-        if not sOptions.doObjectsPrefab and not sOptions.doCollectivePrefab and not sOptions.doFullScene:
+        if not any((sOptions.doObjectsPrefab, sOptions.doCollectivePrefab, sOptions.doFullScene, sOptions.doCollections)):
             log.warning("Select the type of prefabs you want to export")
         else:
             log.info("---- Exporting Prefabs and Scene ----")
