@@ -919,7 +919,7 @@ class UrhoReportDialog(bpy.types.Operator):
         for line in logList:
             lines = line.split(":", 1)
             if lines[0] == 'CRITICAL':
-                lineicon = 'RADIO'
+                lineicon = 'RADIOBUT_ON'
             elif lines[0] == 'ERROR':
                 lineicon = 'CANCEL'
             elif lines[0] == 'WARNING':
