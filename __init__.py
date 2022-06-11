@@ -27,7 +27,7 @@ bl_info = {
     "description": "Urho3D export (NEL)",
     "author": "NEL, 1vanK, reattiva",
     "version": (0, 7),
-    "blender": (2, 83, 0),
+    "blender": (3, 1, 0),
     "location": "Properties > Render > Urho export",
     "warning": "",
     "wiki_url": "",
