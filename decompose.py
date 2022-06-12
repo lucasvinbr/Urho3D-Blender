@@ -38,6 +38,7 @@ DEBUG = 0
 import bpy
 import bmesh
 import math
+from math import cos, pi
 import time as ostime
 from mathutils import Vector, Matrix, Quaternion, Euler, Color
 from collections import OrderedDict
@@ -2318,7 +2319,7 @@ def DecomposeMesh(scene, meshObj, tData, tOptions, errorsMem):
             mesh.vertices[i].co = data.co
 
         # Recalculate normals
-        mesh.update(calc_edges = True, calc_edges_loose = True, calc_loop_triangles = True)
+        mesh.update(calc_edges = True, calc_edges_loose = True)
 
         # Compute local space unit length split normals vectors
         mesh.calc_normals_split()
