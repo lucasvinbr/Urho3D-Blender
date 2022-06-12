@@ -235,16 +235,19 @@ class UrhoVertex:
         return True
 
     # compare position, normal, UV with another vertex, returns the error
-    def LodError(self, other):
-        # If the position is not equal, return max error
-        if not FloatListAlmostEqual(self.pos, other.pos):
+    def LodError(self, other, acceptablePositionError = EPSILON):
+        posError = FloatListEqualError(self.pos, other.pos)
+        # If the position is not close enough, return max error
+        if posError > acceptablePositionError:
             return INFINITY
         # If the angle between normals is above 30°, return max error (TODO: document this)
         ncos = VectorDotProduct(self.normal, other.normal)
         if ncos < cos(30 / 180 * pi):
             return INFINITY
-        # UV are 0..1 x2, normals -1..1 x1, so this absolute error should be good 
-        return (FloatListEqualError(self.uv, other.uv)  + 1-ncos)
+
+        # UV are 0..1 x2, normals -1..1 x1, so this absolute error should be good
+        uvError = (FloatListEqualError(self.uv, other.uv)  + 1-ncos)
+        return max(uvError, posError)
 
     # not unique id of this vertex based on its position
     def __hash__(self):
@@ -834,7 +837,15 @@ def UrhoExport(tData, uExportOptions, uExportData, errorsMem):
     indexBuffer = None
     # Maps old vertex index to Urho vertex buffer index and Urho vertex index
     modelIndexMap = {}
-    
+
+
+    # store all indices used in morphs. 
+    # Those indices can't be skipped in more distant LODs, or else artifacts may show up in closer LODs
+    morphedIndices = set()
+
+    for tMorph in tData.morphsList:
+        morphedIndices = morphedIndices.union(tMorph.indexSet)
+
     # For each geometry
     for tGeometry in tData.geometriesList:
         
@@ -931,22 +942,26 @@ def UrhoExport(tData, uExportOptions, uExportData, errorsMem):
                     uVerticesMap[uVertexHash] = uVerticesMapList
                 
                 uVertexIndex = None
-                if lodIndex == 0 or uExportOptions.useStrictLods:
-                    # For each index in the list, get the corresponding vertex and test if it is equal to tVertex.
-                    # If Position, Normal and UV are the same, it must be the same vertex, get its index.
-                    for ivl in uVerticesMapList:
-                        if vertexBuffer.vertices[ivl].AlmostEqual(uVertex):
-                            uVertexIndex = ivl
-                            break
+
+                if tVertexIndex not in morphedIndices:
+                    if lodIndex == 0 or uExportOptions.useStrictLods:
+                        # For each index in the list, get the corresponding vertex and test if it is equal to tVertex.
+                        # If Position, Normal and UV are the same, it must be the same vertex, get its index.
+                        for ivl in uVerticesMapList:
+                            if vertexBuffer.vertices[ivl].AlmostEqual(uVertex):
+                                uVertexIndex = ivl
+                                break
+                    else:
+                        # For successive LODs, we are more permissive, we will search the best match in the vertices available.
+                        bestLodError = INFINITY
+                        for ivl in uVerticesMapList:
+                            lodError = vertexBuffer.vertices[ivl].LodError(uVertex, EPSILON)
+                            if lodError < bestLodError:
+                                bestLodError = lodError
+                                uVertexIndex = ivl
                 else:
-                    # For successive LODs, we are more permissive, the vertex position must be the same, but for
-                    # the normal and UV we will search the best match in the vertices available.
-                    bestLodError = INFINITY
-                    for ivl in uVerticesMapList:
-                        lodError = vertexBuffer.vertices[ivl].LodError(uVertex)
-                        if lodError < bestLodError:
-                            bestLodError = lodError
-                            uVertexIndex = ivl
+                    #print("skip index {:d}".format(tVertexIndex))
+                    pass
 
                 # If we cannot find it, the vertex is new, add it to the list, and its index to the map list
                 if uVertexIndex is None:
@@ -968,6 +983,9 @@ def UrhoExport(tData, uExportOptions, uExportData, errorsMem):
 
             if warningNewVertices:
                 log.warning("LOD {:d} of object {:s} Geometry{:d} has new vertices."
+                            .format(lodIndex, uModel.name, geomIndex))
+
+            log.info("Done with LOD {:d} of object {:s} Geometry{:d}"
                             .format(lodIndex, uModel.name, geomIndex))
                             
             # Add the local vertex map to the global map
@@ -1098,7 +1116,9 @@ def UrhoExport(tData, uExportOptions, uExportData, errorsMem):
     for tMorph in tData.morphsList:
         uMorph = UrhoVertexMorph()
         uMorph.name = tMorph.name
+        print("exporting morph: {:s}".format(tMorph.name))
         uModel.morphs.append(uMorph)
+
 
         # Get 90 random vertices hoping to get some in all the vertex buffers
         guessingIndices = defaultdict(list)
