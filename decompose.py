@@ -50,6 +50,56 @@ from bpy_extras import io_utils, node_shader_utils
 
 log = logging.getLogger("ExportLogger")
 
+#--------------------
+# Float comparison
+#--------------------
+
+# Max difference between floats to be equal
+EPSILON = 1e-6
+
+# Max difference between floats to be equal
+INFINITY = float("+inf")
+
+# Returns True is v1 and v2 are both None or their corresponding elements are almost equal
+def FloatListAlmostEqual(v1, v2):
+    if v1 is None:
+        return v2 is None
+    if v2 is None:
+        return False
+    for e1, e2 in zip(v1, v2):
+        if abs(e1 - e2) > EPSILON:
+            return False
+    return True
+
+def RelativeAbs(e1, e2):
+    if e1 == 0 and e2 == 0:
+        return 0
+    diff = abs(e1-e2)
+    if diff < EPSILON:
+        return 0
+    return d / max(abs(e1),abs(e2))
+    
+def FloatListEqualError(v1, v2):
+    if v1 is None:
+        if v2 is None:
+            return 0
+        else:
+            return INFINITY
+    if v2 is None:
+        return INFINITY
+    #return sum(RelativeAbs(e1, e2) for e1, e2 in zip(v1, v2))
+    return sum(abs(e1 - e2) for e1, e2 in zip(v1, v2))
+
+def VectorDotProduct(v1, v2):
+    if v1 is None:
+        if v2 is None:
+            return 1
+        else:
+            return -1
+    if v2 is None:
+        return -1
+    return v1.dot(v2)
+
 #------------------
 # Geometry classes
 #------------------
@@ -78,15 +128,14 @@ class TVertex:
 
     # returns True is this vertex is a changed morph of vertex 'other'
     def isMorphed(self, other):
-        # TODO: compare floats with a epsilon margin?
         if other.pos is None:
             return True
-        if self.pos and self.pos != other.pos:
+        if not FloatListAlmostEqual(self.pos, other.pos):
             return True
-        if self.normal and self.normal != other.normal:
+        if not FloatListAlmostEqual(self.normal, other.normal):
             return True
         # We cannot use tangent, it is not calculated yet
-        if self.uv and self.uv != other.uv:
+        if not FloatListAlmostEqual(self.uv, other.uv):
             return True
         return False
 
