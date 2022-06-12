@@ -2303,6 +2303,15 @@ def DecomposeMesh(scene, meshObj, tData, tOptions, errorsMem):
             continue
         
         tMorph = TMorph(block.name)
+
+        morphAlreadyExists = False
+        for existingMorph in morphsList:
+            if existingMorph.name == tMorph.name:
+                tMorph = existingMorph
+                morphAlreadyExists = True
+                break
+
+        
         
         log.info("Decomposing shape: {:s} ({:d} vertices)".format(block.name, len(block.data)) )
 
@@ -2429,7 +2438,8 @@ def DecomposeMesh(scene, meshObj, tData, tOptions, errorsMem):
 
         # If valid add the morph to the model list
         if tMorph.vertexMap:
-            morphsList.append(tMorph)
+            if not morphAlreadyExists:
+                morphsList.append(tMorph)
         else:
             log.warning('Empty shape {:s}.'.format(block.name))
 
