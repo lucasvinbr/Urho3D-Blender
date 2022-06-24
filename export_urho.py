@@ -840,7 +840,7 @@ def UrhoExport(tData, uExportOptions, uExportData, errorsMem):
 
 
     # store all indices used in morphs. 
-    # Those indices can't be skipped in more distant LODs, or else artifacts may show up in closer LODs
+    # Those indices can't be reused in more distant LODs, or else artifacts may show up in closer LODs
     morphedIndices = set()
 
     for tMorph in tData.morphsList:
