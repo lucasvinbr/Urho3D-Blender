@@ -1893,7 +1893,7 @@ def DecomposeMesh(scene, meshObj, tData, tOptions, errorsMem):
     log.info("Decomposing mesh: {:s} ({:d} vertices)".format(meshObj.name, len(mesh.vertices)) )
     
     # Compute local space unit length split normals vectors
-    mesh.calc_normals_split()
+    # mesh.calc_normals_split() removed in blender 4.1
     mesh.calc_loop_triangles()
 
     # If we use the object local origin (orange dot) we don't need transformations
@@ -2057,10 +2057,7 @@ def DecomposeMesh(scene, meshObj, tData, tOptions, errorsMem):
 
             position = posMatrix @ vertex.co
 
-            if mesh.use_auto_smooth:
-                # if using Data->Normals->Auto Smooth, use split normal vector
-                normal = Vector(tri.split_normals[i])
-            elif tri.use_smooth:
+            if tri.use_smooth:
                 # if triangle is smooth, use vertex normal
                 normal = vertex.normal
             else:
