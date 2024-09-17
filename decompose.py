@@ -2328,7 +2328,7 @@ def DecomposeMesh(scene, meshObj, tData, tOptions, errorsMem):
         mesh.update(calc_edges = True, calc_edges_loose = True)
 
         # Compute local space unit length split normals vectors
-        mesh.calc_normals_split()
+        # mesh.calc_normals_split()
         mesh.calc_loop_triangles()
         
         # TODO: if set use 'vertex group' of the shape to filter affected vertices
@@ -2349,10 +2349,10 @@ def DecomposeMesh(scene, meshObj, tData, tOptions, errorsMem):
                 
                 position = posMatrix @ vertex.co
                 
-                if mesh.use_auto_smooth:
-                    # if using Data->Normals->Auto Smooth, use split normal vector
-                    normal = Vector(tri.split_normals[i])
-                elif tri.use_smooth:
+                # if mesh.use_auto_smooth:
+                #     # if using Data->Normals->Auto Smooth, use split normal vector
+                #     normal = Vector(tri.split_normals[i])
+                if tri.use_smooth:
                     # if triangle is smooth, use vertex normal
                     normal = vertex.normal
                 else:

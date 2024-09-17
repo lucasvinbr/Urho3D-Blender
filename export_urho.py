@@ -244,7 +244,6 @@ class UrhoVertex:
         ncos = VectorDotProduct(self.normal, other.normal)
         if ncos < cos(30 / 180 * pi):
             return INFINITY
-
         # UV are 0..1 x2, normals -1..1 x1, so this absolute error should be good
         uvError = (FloatListEqualError(self.uv, other.uv)  + 1-ncos)
         return max(uvError, posError)
@@ -1123,7 +1122,7 @@ def UrhoExport(tData, uExportOptions, uExportData, errorsMem):
         # Get 90 random vertices hoping to get some in all the vertex buffers
         guessingIndices = defaultdict(list)
         indicesAll = tMorph.vertexMap.keys()
-        randomIndicesAll = random.sample(indicesAll, min(90, len(indicesAll)) )
+        randomIndicesAll = random.sample(list(indicesAll), min(90, len(indicesAll)) )
         randomVertices = []
         for tVertexIndex in randomIndicesAll:
             # Get the correspondent Urho vertex buffer and vertex index (there can be more than one)
